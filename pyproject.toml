@@ -33,6 +33,7 @@ disable = [
   "missing-class-docstring",
   "missing-function-docstring",
   "missing-module-docstring",
+  "no-else-return",
   "no-member",                      # incorrect reports
   "protected-access",               # covered by pyright
   "too-few-public-methods",         # too often bad advice
