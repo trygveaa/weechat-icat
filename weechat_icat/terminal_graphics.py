@@ -8,6 +8,7 @@ from typing import Dict, Union
 
 import weechat
 
+from weechat_icat.image import load_image_data
 from weechat_icat.terminal_graphics_diacritics import rowcolumn_diacritics_chars
 
 
@@ -72,17 +73,17 @@ def create_image_placement(image_path: str, columns: int, rows: int):
 
 
 def send_image_to_terminal(image_placement: ImagePlacement):
-    with open(image_placement.path, "rb") as f:
-        control_data = {
-            "a": "T",
-            "q": 2,
-            "f": 100,
-            "U": 1,
-            "c": image_placement.columns,
-            "r": image_placement.rows,
-            "i": image_placement.image_id,
-        }
-        write_chunked(control_data, f.read())
+    control_data = {
+        "a": "T",
+        "q": 2,
+        "f": 100,
+        "U": 1,
+        "c": image_placement.columns,
+        "r": image_placement.rows,
+        "i": image_placement.image_id,
+    }
+    image_data = load_image_data(image_placement.path)
+    write_chunked(control_data, image_data)
 
 
 def display_image(buffer: str, image_placement: ImagePlacement):

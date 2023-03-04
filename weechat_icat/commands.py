@@ -74,7 +74,7 @@ def register_commands():
     command_icat_description = (
         "-columns: number of columns to use to display the image\n"
         "   -rows: number of rows to use to display the image\n"
-        "filename: image to display, must be a png\n"
+        "filename: image to display\n"
         "-restore: instead of displaying a new image, restore the existing "
         "images to a new terminal instance"
     )

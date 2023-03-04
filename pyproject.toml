@@ -15,6 +15,7 @@ packages = [{include = "weechat_icat"}]
 
 [tool.poetry.dependencies]
 python = "^3.7"
+pillow = "^9.4.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.1.0"
