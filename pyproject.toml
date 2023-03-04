@@ -1,3 +1,6 @@
+[tool.isort]
+profile = "black"
+
 [tool.poetry]
 name = "weechat-icat"
 version = "0.1.0"
@@ -9,6 +12,33 @@ packages = [{include = "weechat_icat"}]
 
 [tool.poetry.dependencies]
 python = "^3.7"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.1.0"
+isort = {version = "^5.12.0", python = "^3.8"}
+pylint = {version = "^2.16.3", python = "^3.7.2"}
+pyright = "^1.1.296"
+
+[tool.pylint.main]
+ignored-modules = ["weechat"]
+
+[tool.pylint."messages control"]
+disable = [
+  "dangerous-default-value",        # inconvenient with types
+  "inconsistent-return-statements", # no need when using typing
+  "invalid-name",
+  "missing-class-docstring",
+  "missing-function-docstring",
+  "missing-module-docstring",
+  "no-member",                      # incorrect reports
+  "protected-access",               # covered by pyright
+  "too-few-public-methods",         # too often bad advice
+  "too-many-arguments",
+  "too-many-instance-attributes",
+]
+
+[tool.pyright]
+strict = ["**"]
 
 
 [build-system]
