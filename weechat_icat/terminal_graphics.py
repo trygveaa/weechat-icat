@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import array
+import fcntl
 import os
+import termios
 from base64 import standard_b64encode
 from dataclasses import dataclass
 from random import randint
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 import weechat
 
@@ -13,11 +16,25 @@ from weechat_icat.terminal_graphics_diacritics import rowcolumn_diacritics_chars
 
 
 @dataclass
+class TerminalSize:
+    rows: int
+    columns: int
+    width: int
+    height: int
+
+
+@dataclass
 class ImagePlacement:
     path: str
     image_id: int
     columns: int
     rows: int
+
+
+def get_terminal_size():
+    buf = array.array("H", [0, 0, 0, 0])
+    fcntl.ioctl(1, termios.TIOCGWINSZ, buf)
+    return TerminalSize(*buf)
 
 
 def get_random_image_id():
@@ -67,12 +84,32 @@ def get_cell_character(
     return f"{color}\U0010eeee{x_char}{y_char}{id_char}"
 
 
-def create_image_placement(image_path: str, columns: int, rows: int):
+def create_and_send_image_to_terminal(
+    image_path: str, columns: Optional[int], rows: Optional[int]
+):
     image_id = get_random_image_id()
-    return ImagePlacement(image_path, image_id, columns, rows)
+    image_data = load_image_data(image_path)
+    terminal_size = get_terminal_size()
+    image_columns = image_data.width / terminal_size.width * terminal_size.columns
+    image_rows = image_data.height / terminal_size.height * terminal_size.rows
+
+    if not columns:
+        rows_ = rows or 5
+        columns_ = rows_ / image_rows * image_columns
+    else:
+        columns_ = columns
+        rows_ = rows or columns_ / image_columns * image_rows
+
+    image_placement = ImagePlacement(
+        image_path, image_id, round(columns_), round(rows_)
+    )
+    send_image_to_terminal(image_placement, image_data.data)
+    return image_placement
 
 
-def send_image_to_terminal(image_placement: ImagePlacement):
+def send_image_to_terminal(
+    image_placement: ImagePlacement, image_data: Optional[bytes] = None
+):
     control_data = {
         "a": "T",
         "q": 2,
@@ -82,8 +119,8 @@ def send_image_to_terminal(image_placement: ImagePlacement):
         "r": image_placement.rows,
         "i": image_placement.image_id,
     }
-    image_data = load_image_data(image_placement.path)
-    write_chunked(control_data, image_data)
+    image_bytes = image_data or load_image_data(image_placement.path).data
+    write_chunked(control_data, image_bytes)
 
 
 def display_image(buffer: str, image_placement: ImagePlacement):

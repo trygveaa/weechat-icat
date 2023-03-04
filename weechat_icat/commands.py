@@ -10,7 +10,7 @@ from weechat_icat.log import print_error
 from weechat_icat.python_compatibility import removeprefix
 from weechat_icat.terminal_graphics import (
     ImagePlacement,
-    create_image_placement,
+    create_and_send_image_to_terminal,
     display_image,
     send_image_to_terminal,
 )
@@ -49,23 +49,25 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
             send_image_to_terminal(image_placement)
         weechat.command(buffer, "/window refresh")
     else:
-        columns = options.get("columns", "10")
-        if not columns.isdecimal():
+        columns = options.get("columns")
+        if columns is not None and not columns.isdecimal():
             print_error("columns must be a positive integer")
             return weechat.WEECHAT_RC_ERROR
-        rows = options.get("rows", "10")
-        if not rows.isdecimal():
+        columns_int = int(columns) if columns else None
+
+        rows = options.get("rows")
+        if rows is not None and not rows.isdecimal():
             print_error("rows must be a positive integer")
             return weechat.WEECHAT_RC_ERROR
+        rows_int = int(rows) if rows else None
 
         path = weechat.string_eval_path_home(pos_args, {}, {}, {})
         if not os.path.isfile(path):
             print_error("filename must point to an existing file")
             return weechat.WEECHAT_RC_ERROR
 
-        image_placement = create_image_placement(path, int(columns), int(rows))
+        image_placement = create_and_send_image_to_terminal(path, columns_int, rows_int)
         image_placements.append(image_placement)
-        send_image_to_terminal(image_placement)
         display_image(buffer, image_placement)
     return weechat.WEECHAT_RC_OK
 
