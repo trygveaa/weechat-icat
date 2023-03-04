@@ -11,12 +11,16 @@ from weechat_icat.terminal_graphics_diacritics import rowcolumn_diacritics_chars
 
 
 def serialize_gr_command(control_data: Dict[str, Union[str, int]], payload: bytes):
+    tmux = weechat.string_eval_expression("${env:TMUX}", {}, {}, {})
+    esc = b"\033\033" if tmux else b"\033"
     control_data_str = ",".join(f"{k}={v}" for k, v in control_data.items())
     ans = [
-        b"\033_G",
+        b"\033Ptmux;" if tmux else b"",
+        esc + b"_G",
         control_data_str.encode("ascii"),
         b";" + payload if payload else b"",
-        b"\033\\",
+        esc + b"\\",
+        b"\033\\" if tmux else b"",
     ]
     return b"".join(ans)
 
