@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import os
 from base64 import standard_b64encode
+from dataclasses import dataclass
 from random import randint
 from typing import Dict, Union
 
 import weechat
 
 from weechat_icat.terminal_graphics_diacritics import rowcolumn_diacritics_chars
+
+
+@dataclass
+class ImagePlacement:
+    path: str
+    image_id: int
+    columns: int
+    rows: int
+
+
+def get_random_image_id():
+    image_id_upper = randint(0, 255)
+    image_id_lower = randint(0, 255)
+    return (image_id_upper << 24) + image_id_lower
 
 
 def serialize_gr_command(control_data: Dict[str, Union[str, int]], payload: bytes):
@@ -37,12 +52,13 @@ def write_chunked(control_data: Dict[str, Union[str, int]], data: bytes):
 
 
 def get_cell_character(
+    image_id: int,
     x: int,
     y: int,
-    image_id_upper: int,
-    image_id_lower: int,
     include_color: bool = False,
 ):
+    image_id_upper = image_id >> 24
+    image_id_lower = image_id & 0xFF
     color = weechat.color(str(image_id_lower)) if include_color else ""
     x_char = rowcolumn_diacritics_chars[x]
     y_char = rowcolumn_diacritics_chars[y]
@@ -50,26 +66,29 @@ def get_cell_character(
     return f"{color}\U0010eeee{x_char}{y_char}{id_char}"
 
 
-def display_image(buffer: str, image_path: str, columns: int, rows: int):
-    image_id_upper = randint(0, 255)
-    image_id_lower = randint(0, 255)
-    image_id = (image_id_upper << 24) + image_id_lower
-    with open(image_path, "rb") as f:
+def create_image_placement(image_path: str, columns: int, rows: int):
+    image_id = get_random_image_id()
+    return ImagePlacement(image_path, image_id, columns, rows)
+
+
+def send_image_to_terminal(image_placement: ImagePlacement):
+    with open(image_placement.path, "rb") as f:
         control_data = {
             "a": "T",
             "q": 2,
             "f": 100,
             "U": 1,
-            "c": columns,
-            "r": rows,
-            "i": image_id,
+            "c": image_placement.columns,
+            "r": image_placement.rows,
+            "i": image_placement.image_id,
         }
         write_chunked(control_data, f.read())
-        for x in range(rows):
-            chars = [
-                get_cell_character(
-                    x, y, image_id_upper, image_id_lower, include_color=y == 0
-                )
-                for y in range(columns)
-            ]
-            weechat.prnt(buffer, "".join(chars))
+
+
+def display_image(buffer: str, image_placement: ImagePlacement):
+    for x in range(image_placement.rows):
+        chars = [
+            get_cell_character(image_placement.image_id, x, y, include_color=y == 0)
+            for y in range(image_placement.columns)
+        ]
+        weechat.prnt(buffer, "".join(chars))
