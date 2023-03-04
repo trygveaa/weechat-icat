@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from typing import Dict, List
 
@@ -57,7 +58,12 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
             print_error("rows must be a positive integer")
             return weechat.WEECHAT_RC_ERROR
 
-        image_placement = create_image_placement(pos_args, int(columns), int(rows))
+        path = weechat.string_eval_path_home(pos_args, {}, {}, {})
+        if not os.path.isfile(path):
+            print_error("filename must point to an existing file")
+            return weechat.WEECHAT_RC_ERROR
+
+        image_placement = create_image_placement(path, int(columns), int(rows))
         image_placements.append(image_placement)
         send_image_to_terminal(image_placement)
         display_image(buffer, image_placement)
