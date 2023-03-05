@@ -7,7 +7,7 @@ import pickle
 import termios
 from base64 import b64decode, b64encode
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import StringIO
 from random import randint
 from typing import Callable, Dict, List, Optional, Union
@@ -38,6 +38,7 @@ class ImagePlacement:
     image_id: int
     columns: int
     rows: int
+    terminal_cmds: List[bytes] = field(default_factory=list)
 
 
 @dataclass
@@ -89,14 +90,18 @@ def serialize_gr_command(control_data: Dict[str, Union[str, int]], payload: byte
 
 
 def write_chunked(control_data: Dict[str, Union[str, int]], data: bytes):
+    cmds: List[bytes] = []
     with open(os.ctermid(), "wb") as tty:
         data_base64 = b64encode(data)
         while data_base64:
             chunk, data_base64 = data_base64[:4096], data_base64[4096:]
             m = 1 if data_base64 else 0
-            tty.write(serialize_gr_command({**control_data, "m": m}, chunk))
+            cmd = serialize_gr_command({**control_data, "m": m}, chunk)
+            cmds.append(cmd)
+            tty.write(cmd)
             tty.flush()
             control_data.clear()
+    return cmds
 
 
 def get_cell_character(
@@ -214,24 +219,32 @@ def create_and_send_image_to_terminal(
     return image_placement
 
 
-def send_image_to_terminal(image_placement: ImagePlacement, image_data: ImageData):
-    control_data = {
-        "a": "T",
-        "q": 2,
-        "f": 100,
-        "U": 1,
-        "c": image_placement.columns,
-        "r": image_placement.rows,
-        "i": image_placement.image_id,
-    }
-    write_chunked(control_data, image_data.data)
+def send_image_to_terminal(
+    image_placement: ImagePlacement, image_data: Optional[ImageData] = None
+):
+    if image_placement.terminal_cmds:
+        with open(os.ctermid(), "wb") as tty:
+            for cmd in image_placement.terminal_cmds:
+                tty.write(cmd)
+                tty.flush()
+    else:
+        control_data = {
+            "a": "T",
+            "q": 2,
+            "f": 100,
+            "U": 1,
+            "c": image_placement.columns,
+            "r": image_placement.rows,
+            "i": image_placement.image_id,
+        }
+        image_data = load_image_data(image_placement.path)
+        image_placement.terminal_cmds = write_chunked(control_data, image_data.data)
 
 
 def send_images_to_terminal_bg(data_serialized: str):
     data: ImagesSendData = pickle.loads(b64decode(data_serialized))
     for image_placement in data.image_placements:
-        image_data = load_image_data(image_placement.path)
-        send_image_to_terminal(image_placement, image_data)
+        send_image_to_terminal(image_placement)
     return ""
 
 
