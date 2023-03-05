@@ -21,6 +21,7 @@ from weechat_icat.terminal_graphics_diacritics import rowcolumn_diacritics_chars
 from weechat_icat.util import get_callback_name
 
 string_buffers: Dict[str, StringIO] = defaultdict(StringIO)
+image_create_queue: List[ImageCreateData] = []
 
 
 @dataclass
@@ -161,7 +162,21 @@ def create_and_send_image_to_terminal_bg_finished_cb(
 
     image_placement: ImagePlacement = pickle.loads(b64decode(out))
     data.callback(data.callback_data, image_placement)
+
+    image_create_queue.pop(0)
+    start_image_create_job(True)
     return weechat.WEECHAT_RC_OK
+
+
+def start_image_create_job(prev_job_finished: bool):
+    if image_create_queue and prev_job_finished or len(image_create_queue) == 1:
+        data_serialized = b64encode(pickle.dumps(image_create_queue[0])).decode("ascii")
+        weechat.hook_process(
+            "func:" + get_callback_name(create_and_send_image_to_terminal_bg),
+            60000,
+            get_callback_name(create_and_send_image_to_terminal_bg_finished_cb),
+            data_serialized,
+        )
 
 
 def create_and_send_image_to_terminal(
@@ -180,14 +195,8 @@ def create_and_send_image_to_terminal(
         callback,
         callback_data,
     )
-    data_serialized = b64encode(pickle.dumps(image_create_data)).decode("ascii")
-
-    weechat.hook_process(
-        "func:" + get_callback_name(create_and_send_image_to_terminal_bg),
-        60000,
-        get_callback_name(create_and_send_image_to_terminal_bg_finished_cb),
-        data_serialized,
-    )
+    image_create_queue.append(image_create_data)
+    start_image_create_job(False)
 
 
 def send_image_to_terminal(image_placement: ImagePlacement, image_data: ImageData):
