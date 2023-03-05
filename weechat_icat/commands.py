@@ -7,11 +7,14 @@ from base64 import b64decode, b64encode
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+from uuid import uuid4
 
 import weechat
 
+from weechat_icat.download import download_image
 from weechat_icat.log import print_error, print_info
 from weechat_icat.python_compatibility import removeprefix
+from weechat_icat.shared import shared
 from weechat_icat.terminal_graphics import (
     ImagePlacement,
     create_and_send_image_to_terminal,
@@ -20,7 +23,18 @@ from weechat_icat.terminal_graphics import (
 )
 from weechat_icat.util import get_callback_name
 
+downloaded_images: Dict[str, str] = {}
 image_placements: Dict[str, List[ImagePlacement]] = defaultdict(list)
+
+
+@dataclass
+class ImageDownloadedData:
+    buffer: str
+    url: str
+    path: str
+    columns: Optional[int]
+    rows: Optional[int]
+    print_immediately: bool
 
 
 @dataclass
@@ -55,6 +69,14 @@ def new_image_placement(buffer: str, image_placement: ImagePlacement):
     image_placements[image_placement.path].append(image_placement)
 
 
+def image_downloaded_cb(data_serialized: str):
+    data: ImageDownloadedData = pickle.loads(b64decode(data_serialized))
+    downloaded_images[data.url] = data.path
+    create_image(
+        data.buffer, data.path, data.columns, data.rows, data.print_immediately
+    )
+
+
 def image_created_cb(
     data_serialized: str,
     image_placement: ImagePlacement,
@@ -70,6 +92,38 @@ def image_created_cb(
 def images_restored_cb(buffer: str):
     weechat.command(buffer, "/window refresh")
     print_info("finished restoring images")
+
+
+def download_and_create_image(
+    buffer: str,
+    url: str,
+    columns: Optional[int],
+    rows: Optional[int],
+    print_immediately: bool,
+):
+    downloaded_path = downloaded_images.get(url)
+    if downloaded_path and os.path.isfile(downloaded_path):
+        create_image(
+            buffer,
+            downloaded_path,
+            columns,
+            rows,
+            bool(print_immediately),
+        )
+    else:
+        save_path = weechat.string_eval_path_home(
+            f"{shared.cache_downloaded_images_path}/{uuid4()}", {}, {}, {}
+        )
+        image_downloaded_data = ImageDownloadedData(
+            buffer,
+            url,
+            save_path,
+            columns,
+            rows,
+            bool(print_immediately),
+        )
+        callback_data = b64encode(pickle.dumps(image_downloaded_data)).decode("ascii")
+        download_image(url, save_path, image_downloaded_cb, callback_data)
 
 
 def create_image(
@@ -128,12 +182,18 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
             )
             return weechat.WEECHAT_RC_ERROR
 
-        path = weechat.string_eval_path_home(pos_args, {}, {}, {})
-        if not os.path.isfile(path):
+        path_or_url = weechat.string_eval_path_home(pos_args, {}, {}, {})
+        if path_or_url.startswith(("http://", "https://")):
+            download_and_create_image(
+                buffer, path_or_url, columns_int, rows_int, bool(print_immediately)
+            )
+        elif os.path.isfile(path_or_url):
+            create_image(
+                buffer, path_or_url, columns_int, rows_int, bool(print_immediately)
+            )
+        else:
             print_error("filename must point to an existing file")
             return weechat.WEECHAT_RC_ERROR
-
-        create_image(buffer, path, columns_int, rows_int, bool(print_immediately))
 
     return weechat.WEECHAT_RC_OK
 

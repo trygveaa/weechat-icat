@@ -10,6 +10,13 @@ SCRIPT_LICENSE = "MIT"
 SCRIPT_DESC = "Display images in the chat"
 
 
+def create_cache_paths():
+    paths = [shared.cache_path, shared.cache_downloaded_images_path]
+    for path in paths:
+        if not weechat.mkdir_home(path, 0o755):
+            raise RuntimeError("Failed creating cache path")
+
+
 def register():
     if weechat.register(
         shared.SCRIPT_NAME,
@@ -20,4 +27,5 @@ def register():
         "",
         "",
     ):
+        create_cache_paths()
         register_commands()
