@@ -7,7 +7,7 @@ from typing import Dict, List
 
 import weechat
 
-from weechat_icat.log import print_error
+from weechat_icat.log import print_error, print_info
 from weechat_icat.python_compatibility import removeprefix
 from weechat_icat.terminal_graphics import (
     ImagePlacement,
@@ -48,6 +48,7 @@ def image_created_cb(buffer: str, image_placement: ImagePlacement):
 
 def images_restored_cb(buffer: str):
     weechat.command(buffer, "/window refresh")
+    print_info("finished restoring images")
 
 
 def icat_cb(data: str, buffer: str, args: str) -> int:
