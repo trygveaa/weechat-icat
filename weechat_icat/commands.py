@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+import PIL
 import weechat
 
 from weechat_icat.download import download_image
@@ -16,7 +17,9 @@ from weechat_icat.log import print_error, print_info
 from weechat_icat.python_compatibility import removeprefix
 from weechat_icat.shared import shared
 from weechat_icat.terminal_graphics import (
+    ImageCreateFinished,
     ImagePlacement,
+    ImagesSendFinished,
     create_and_send_image_to_terminal,
     display_image,
     send_images_to_terminal,
@@ -40,6 +43,7 @@ class ImageDownloadedData:
 @dataclass
 class ImageCreatedData:
     buffer: str
+    path: str
     print_immediately: bool
 
 
@@ -79,17 +83,33 @@ def image_downloaded_cb(data_serialized: str):
 
 def image_created_cb(
     data_serialized: str,
-    image_placement: ImagePlacement,
+    result: ImageCreateFinished,
     image_placement_was_returned: bool,
 ):
     data: ImageCreatedData = pickle.loads(b64decode(data_serialized))
+
+    if isinstance(result, Exception):
+        if image_placement_was_returned:
+            del image_placements[data.path]
+
+        if isinstance(result, PIL.UnidentifiedImageError):
+            print_error("failed to load image")
+            return
+
+        print_error("failed displaying image:")
+        raise result
+
     if data.print_immediately and image_placement_was_returned:
         weechat.command(data.buffer, "/window refresh")
     else:
-        new_image_placement(data.buffer, image_placement)
+        new_image_placement(data.buffer, result)
 
 
-def images_restored_cb(buffer: str):
+def images_restored_cb(buffer: str, result: ImagesSendFinished):
+    if isinstance(result, Exception):
+        print_error("failed restoring images:")
+        raise result
+
     weechat.command(buffer, "/window refresh")
     print_info("finished restoring images")
 
@@ -141,7 +161,7 @@ def create_image(
             display_image(buffer, image_placement)
             break
     else:
-        image_created_data = ImageCreatedData(buffer, print_immediately)
+        image_created_data = ImageCreatedData(buffer, path, print_immediately)
         callback_data = b64encode(pickle.dumps(image_created_data)).decode("ascii")
         image_placement = create_and_send_image_to_terminal(
             path, columns, rows, image_created_cb, callback_data

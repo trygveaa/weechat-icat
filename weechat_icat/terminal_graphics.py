@@ -16,7 +16,6 @@ from uuid import UUID, uuid4
 import weechat
 
 from weechat_icat.image import ImageData, load_image_data
-from weechat_icat.log import print_error
 from weechat_icat.terminal_graphics_diacritics import rowcolumn_diacritics_chars
 from weechat_icat.util import get_callback_name
 
@@ -41,6 +40,10 @@ class ImagePlacement:
     terminal_cmds: List[bytes] = field(default_factory=list)
 
 
+ImageCreateFinished = Union[ImagePlacement, Exception]
+ImagesSendFinished = Union[None, Exception]
+
+
 @dataclass
 class ImageCreateData:
     path: str
@@ -49,7 +52,7 @@ class ImageCreateData:
     rows: Optional[int]
     terminal_size: TerminalSize
     image_placement: Optional[ImagePlacement]
-    callback: Callable[[str, ImagePlacement, bool], None]
+    callback: Callable[[str, ImageCreateFinished, bool], None]
     callback_data: str
     uuid: UUID = uuid4()
 
@@ -57,7 +60,7 @@ class ImageCreateData:
 @dataclass
 class ImagesSendData:
     image_placements: List[ImagePlacement]
-    callback: Callable[[str], None]
+    callback: Callable[[str, ImagesSendFinished], None]
     callback_data: str
     uuid: UUID = uuid4()
 
@@ -120,63 +123,71 @@ def get_cell_character(
 
 
 def create_and_send_image_to_terminal_bg(data_serialized: str) -> str:
-    data: ImageCreateData = pickle.loads(b64decode(data_serialized))
-    image_data = load_image_data(data.path)
+    try:
+        data: ImageCreateData = pickle.loads(b64decode(data_serialized))
+        image_data = load_image_data(data.path)
 
-    if data.image_placement:
-        image_placement = data.image_placement
-    else:
-        image_columns = (
-            image_data.width / data.terminal_size.width * data.terminal_size.columns
-        )
-        image_rows = (
-            image_data.height / data.terminal_size.height * data.terminal_size.rows
-        )
-
-        if not data.columns:
-            rows = data.rows or 5
-            columns = rows / image_rows * image_columns
+        if data.image_placement:
+            image_placement = data.image_placement
         else:
-            columns = data.columns
-            rows = data.rows or columns / image_columns * image_rows
+            image_columns = (
+                image_data.width / data.terminal_size.width * data.terminal_size.columns
+            )
+            image_rows = (
+                image_data.height / data.terminal_size.height * data.terminal_size.rows
+            )
 
-        image_placement = ImagePlacement(
-            data.path, data.image_id, round(columns), round(rows)
-        )
+            if not data.columns:
+                rows = data.rows or 5
+                columns = rows / image_rows * image_columns
+            else:
+                columns = data.columns
+                rows = data.rows or columns / image_columns * image_rows
 
-    send_image_to_terminal(image_placement, image_data)
+            image_placement = ImagePlacement(
+                data.path, data.image_id, round(columns), round(rows)
+            )
 
-    return b64encode(pickle.dumps(image_placement)).decode("ascii")
+        send_image_to_terminal(image_placement, image_data)
+
+        return b64encode(pickle.dumps(image_placement)).decode("ascii")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return b64encode(pickle.dumps(e)).decode("ascii")
 
 
 def create_and_send_image_to_terminal_bg_finished_cb(
     data_serialized: str, command: str, return_code: int, out_chunk: str, err_chunk: str
 ) -> int:
-    data: ImageCreateData = pickle.loads(b64decode(data_serialized))
-    out_key = f"{str(data.uuid)}_out"
-    err_key = f"{str(data.uuid)}_err"
-    string_buffers[out_key].write(out_chunk)
-    string_buffers[err_key].write(err_chunk)
+    try:
+        data: ImageCreateData = pickle.loads(b64decode(data_serialized))
+        out_key = f"{str(data.uuid)}_out"
+        err_key = f"{str(data.uuid)}_err"
+        string_buffers[out_key].write(out_chunk)
+        string_buffers[err_key].write(err_chunk)
 
-    if return_code == -1:
-        return weechat.WEECHAT_RC_OK
+        if return_code == -1:
+            return weechat.WEECHAT_RC_OK
 
-    out = string_buffers[out_key].getvalue()
-    err = string_buffers[err_key].getvalue()
-    string_buffers[out_key].close()
-    string_buffers[err_key].close()
-    del string_buffers[out_key]
-    del string_buffers[err_key]
+        out = string_buffers[out_key].getvalue()
+        err = string_buffers[err_key].getvalue()
+        string_buffers[out_key].close()
+        string_buffers[err_key].close()
+        del string_buffers[out_key]
+        del string_buffers[err_key]
 
-    if return_code == weechat.WEECHAT_HOOK_PROCESS_ERROR or return_code > 0 or err:
-        print_error(f"failed displaying image, return_code={return_code}, err='{err}'")
-        return weechat.WEECHAT_RC_OK
+        image_placement_was_returned = data.image_placement is not None
 
-    image_placement: ImagePlacement = pickle.loads(b64decode(out))
-    data.callback(data.callback_data, image_placement, data.image_placement is not None)
+        if return_code == weechat.WEECHAT_HOOK_PROCESS_ERROR or return_code > 0 or err:
+            error = RuntimeError(f"return_code={return_code}, err='{err}'")
+            data.callback(data.callback_data, error, image_placement_was_returned)
+            return weechat.WEECHAT_RC_OK
 
-    image_create_queue.pop(0)
-    start_image_create_job(True)
+        result: ImageCreateFinished = pickle.loads(b64decode(out))
+        data.callback(data.callback_data, result, image_placement_was_returned)
+    finally:
+        if return_code != -1:
+            image_create_queue.pop(0)
+            start_image_create_job(True)
     return weechat.WEECHAT_RC_OK
 
 
@@ -195,7 +206,7 @@ def create_and_send_image_to_terminal(
     image_path: str,
     columns: Optional[int],
     rows: Optional[int],
-    callback: Callable[[str, ImagePlacement, bool], None],
+    callback: Callable[[str, ImageCreateFinished, bool], None],
     callback_data: str,
 ):
     image_id = get_random_image_id()
@@ -242,37 +253,47 @@ def send_image_to_terminal(
 
 
 def send_images_to_terminal_bg(data_serialized: str):
-    data: ImagesSendData = pickle.loads(b64decode(data_serialized))
-    for image_placement in data.image_placements:
-        send_image_to_terminal(image_placement)
-    return ""
+    try:
+        data: ImagesSendData = pickle.loads(b64decode(data_serialized))
+        for image_placement in data.image_placements:
+            send_image_to_terminal(image_placement)
+        return b64encode(pickle.dumps(None)).decode("ascii")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return b64encode(pickle.dumps(e)).decode("ascii")
 
 
 def send_images_to_terminal_bg_finished_cb(
     data_serialized: str, command: str, return_code: int, out_chunk: str, err_chunk: str
 ) -> int:
     data: ImagesSendData = pickle.loads(b64decode(data_serialized))
+    out_key = f"{str(data.uuid)}_out"
     err_key = f"{str(data.uuid)}_err"
+    string_buffers[out_key].write(out_chunk)
     string_buffers[err_key].write(err_chunk)
 
     if return_code == -1:
         return weechat.WEECHAT_RC_OK
 
+    out = string_buffers[out_key].getvalue()
     err = string_buffers[err_key].getvalue()
+    string_buffers[out_key].close()
     string_buffers[err_key].close()
+    del string_buffers[out_key]
     del string_buffers[err_key]
 
     if return_code == weechat.WEECHAT_HOOK_PROCESS_ERROR or return_code > 0 or err:
-        print_error(f"failed restoring image, return_code={return_code}, err='{err}'")
+        error = RuntimeError(f"return_code={return_code}, err='{err}'")
+        data.callback(data.callback_data, error)
         return weechat.WEECHAT_RC_OK
 
-    data.callback(data.callback_data)
+    result: ImagesSendFinished = pickle.loads(b64decode(out))
+    data.callback(data.callback_data, result)
     return weechat.WEECHAT_RC_OK
 
 
 def send_images_to_terminal(
     image_placements: List[ImagePlacement],
-    callback: Callable[[str], None],
+    callback: Callable[[str, ImagesSendFinished], None],
     callback_data: str,
 ):
     images_send_data = ImagesSendData(
