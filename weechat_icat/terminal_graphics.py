@@ -47,7 +47,8 @@ class ImageCreateData:
     columns: Optional[int]
     rows: Optional[int]
     terminal_size: TerminalSize
-    callback: Callable[[str, ImagePlacement], None]
+    image_placement: Optional[ImagePlacement]
+    callback: Callable[[str, ImagePlacement, bool], None]
     callback_data: str
     uuid: UUID = uuid4()
 
@@ -117,21 +118,27 @@ def create_and_send_image_to_terminal_bg(data_serialized: str) -> str:
     data: ImageCreateData = pickle.loads(b64decode(data_serialized))
     image_data = load_image_data(data.path)
 
-    image_columns = (
-        image_data.width / data.terminal_size.width * data.terminal_size.columns
-    )
-    image_rows = image_data.height / data.terminal_size.height * data.terminal_size.rows
-
-    if not data.columns:
-        rows = data.rows or 5
-        columns = rows / image_rows * image_columns
+    if data.image_placement:
+        image_placement = data.image_placement
     else:
-        columns = data.columns
-        rows = data.rows or columns / image_columns * image_rows
+        image_columns = (
+            image_data.width / data.terminal_size.width * data.terminal_size.columns
+        )
+        image_rows = (
+            image_data.height / data.terminal_size.height * data.terminal_size.rows
+        )
 
-    image_placement = ImagePlacement(
-        data.path, data.image_id, round(columns), round(rows)
-    )
+        if not data.columns:
+            rows = data.rows or 5
+            columns = rows / image_rows * image_columns
+        else:
+            columns = data.columns
+            rows = data.rows or columns / image_columns * image_rows
+
+        image_placement = ImagePlacement(
+            data.path, data.image_id, round(columns), round(rows)
+        )
+
     send_image_to_terminal(image_placement, image_data)
 
     return b64encode(pickle.dumps(image_placement)).decode("ascii")
@@ -161,7 +168,7 @@ def create_and_send_image_to_terminal_bg_finished_cb(
         return weechat.WEECHAT_RC_OK
 
     image_placement: ImagePlacement = pickle.loads(b64decode(out))
-    data.callback(data.callback_data, image_placement)
+    data.callback(data.callback_data, image_placement, data.image_placement is not None)
 
     image_create_queue.pop(0)
     start_image_create_job(True)
@@ -183,20 +190,28 @@ def create_and_send_image_to_terminal(
     image_path: str,
     columns: Optional[int],
     rows: Optional[int],
-    callback: Callable[[str, ImagePlacement], None],
+    callback: Callable[[str, ImagePlacement, bool], None],
     callback_data: str,
 ):
+    image_id = get_random_image_id()
+    if columns and rows:
+        image_placement = ImagePlacement(image_path, image_id, columns, rows)
+    else:
+        image_placement = None
+
     image_create_data = ImageCreateData(
         image_path,
-        get_random_image_id(),
+        image_id,
         columns,
         rows,
         get_terminal_size(),
+        image_placement,
         callback,
         callback_data,
     )
     image_create_queue.append(image_create_data)
     start_image_create_job(False)
+    return image_placement
 
 
 def send_image_to_terminal(image_placement: ImagePlacement, image_data: ImageData):

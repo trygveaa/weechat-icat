@@ -41,9 +41,18 @@ def parse_options(args: str, supported_options: Dict[str, bool]):
     return "".join(pos_args).strip(), options
 
 
-def image_created_cb(buffer: str, image_placement: ImagePlacement):
+def new_image_placement(buffer: str, image_placement: ImagePlacement):
     display_image(buffer, image_placement)
     image_placements[image_placement.path].append(image_placement)
+
+
+def image_created_cb(
+    buffer: str, image_placement: ImagePlacement, image_placement_was_returned: bool
+):
+    if image_placement_was_returned:
+        weechat.command(buffer, "/window refresh")
+    else:
+        new_image_placement(buffer, image_placement)
 
 
 def images_restored_cb(buffer: str):
@@ -88,9 +97,11 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
                 display_image(buffer, image_placement)
                 break
         else:
-            create_and_send_image_to_terminal(
+            image_placement = create_and_send_image_to_terminal(
                 path, columns_int, rows_int, image_created_cb, buffer
             )
+            if image_placement:
+                new_image_placement(buffer, image_placement)
 
     return weechat.WEECHAT_RC_OK
 
