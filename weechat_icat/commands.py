@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import pickle
 import re
+from base64 import b64decode, b64encode
 from collections import defaultdict
-from typing import Dict, List
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import weechat
 
@@ -18,6 +21,12 @@ from weechat_icat.terminal_graphics import (
 from weechat_icat.util import get_callback_name
 
 image_placements: Dict[str, List[ImagePlacement]] = defaultdict(list)
+
+
+@dataclass
+class ImageCreatedData:
+    buffer: str
+    print_immediately: bool
 
 
 def parse_options(args: str, supported_options: Dict[str, bool]):
@@ -47,12 +56,15 @@ def new_image_placement(buffer: str, image_placement: ImagePlacement):
 
 
 def image_created_cb(
-    buffer: str, image_placement: ImagePlacement, image_placement_was_returned: bool
+    data_serialized: str,
+    image_placement: ImagePlacement,
+    image_placement_was_returned: bool,
 ):
-    if image_placement_was_returned:
-        weechat.command(buffer, "/window refresh")
+    data: ImageCreatedData = pickle.loads(b64decode(data_serialized))
+    if data.print_immediately and image_placement_was_returned:
+        weechat.command(data.buffer, "/window refresh")
     else:
-        new_image_placement(buffer, image_placement)
+        new_image_placement(data.buffer, image_placement)
 
 
 def images_restored_cb(buffer: str):
@@ -60,9 +72,34 @@ def images_restored_cb(buffer: str):
     print_info("finished restoring images")
 
 
+def create_image(
+    buffer: str,
+    path: str,
+    columns: Optional[int],
+    rows: Optional[int],
+    print_immediately: bool,
+):
+    for ip in image_placements[path]:
+        if (columns is None or columns == ip.columns) and (
+            rows is None or rows == ip.rows
+        ):
+            image_placement = ip
+            display_image(buffer, image_placement)
+            break
+    else:
+        image_created_data = ImageCreatedData(buffer, print_immediately)
+        callback_data = b64encode(pickle.dumps(image_created_data)).decode("ascii")
+        image_placement = create_and_send_image_to_terminal(
+            path, columns, rows, image_created_cb, callback_data
+        )
+        if print_immediately and image_placement:
+            new_image_placement(buffer, image_placement)
+
+
 def icat_cb(data: str, buffer: str, args: str) -> int:
     pos_args, options = parse_options(
-        args, {"columns": True, "rows": True, "restore": False}
+        args,
+        {"columns": True, "rows": True, "print_immediately": False, "restore": False},
     )
     if "restore" in options:
         image_placements_values = [
@@ -84,42 +121,42 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
             return weechat.WEECHAT_RC_ERROR
         rows_int = int(rows) if rows else None
 
+        print_immediately = options.get("print_immediately")
+        if print_immediately and (not columns_int or not rows_int):
+            print_error(
+                "both -columns and -rows must be specified when using -print_immediately"
+            )
+            return weechat.WEECHAT_RC_ERROR
+
         path = weechat.string_eval_path_home(pos_args, {}, {}, {})
         if not os.path.isfile(path):
             print_error("filename must point to an existing file")
             return weechat.WEECHAT_RC_ERROR
 
-        for ip in image_placements[path]:
-            if (columns_int is None or columns_int == ip.columns) and (
-                rows_int is None or rows_int == ip.rows
-            ):
-                image_placement = ip
-                display_image(buffer, image_placement)
-                break
-        else:
-            image_placement = create_and_send_image_to_terminal(
-                path, columns_int, rows_int, image_created_cb, buffer
-            )
-            if image_placement:
-                new_image_placement(buffer, image_placement)
+        create_image(buffer, path, columns_int, rows_int, bool(print_immediately))
 
     return weechat.WEECHAT_RC_OK
 
 
 def register_commands():
     command_icat_description = (
-        "-columns: number of columns to use to display the image\n"
-        "   -rows: number of rows to use to display the image\n"
-        "filename: image to display\n"
-        "-restore: instead of displaying a new image, restore the existing "
-        "images to a new terminal instance"
+        "          -columns: number of columns to use to display the image\n"
+        "             -rows: number of rows to use to display the image\n"
+        "-print_immediately: print the image lines immediately (the lines will "
+        "be blank until the image is created); requires both -columns and -rows\n"
+        "          filename: image to display\n"
+        "          -restore: instead of displaying a new image, restore the existing "
+        "images to a new terminal instance\n"
+        "\n"
+        "Note that images are loaded in the background, so they may not be "
+        "displayed immediately after running the command."
     )
     weechat.hook_command(
         "icat",
         "display an image in the chat",
-        "[-columns <columns>] [-rows <rows>] <filename> || -restore",
+        "[-columns <columns>] [-rows <rows>] [-print_immediately] <filename> || -restore",
         command_icat_description,
-        "-columns|-rows|%* || -restore",
+        "-columns|-rows|-print_immediately|%* || -restore",
         get_callback_name(icat_cb),
         "",
     )
