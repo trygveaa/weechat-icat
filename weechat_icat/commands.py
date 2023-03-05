@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import defaultdict
 from typing import Dict, List
 
 import weechat
@@ -16,7 +17,7 @@ from weechat_icat.terminal_graphics import (
 )
 from weechat_icat.util import get_callback_name
 
-image_placements: List[ImagePlacement] = []
+image_placements: Dict[str, List[ImagePlacement]] = defaultdict(list)
 
 
 def parse_options(args: str, supported_options: Dict[str, bool]):
@@ -45,8 +46,9 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
         args, {"columns": True, "rows": True, "restore": False}
     )
     if "restore" in options:
-        for image_placement in image_placements:
-            send_image_to_terminal(image_placement)
+        for image_placement_list in image_placements.values():
+            for image_placement in image_placement_list:
+                send_image_to_terminal(image_placement)
         weechat.command(buffer, "/window refresh")
     else:
         columns = options.get("columns")
@@ -66,8 +68,18 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
             print_error("filename must point to an existing file")
             return weechat.WEECHAT_RC_ERROR
 
-        image_placement = create_and_send_image_to_terminal(path, columns_int, rows_int)
-        image_placements.append(image_placement)
+        for ip in image_placements[path]:
+            if (columns_int is None or columns_int == ip.columns) and (
+                rows_int is None or rows_int == ip.rows
+            ):
+                image_placement = ip
+                break
+        else:
+            image_placement = create_and_send_image_to_terminal(
+                path, columns_int, rows_int
+            )
+            image_placements[path].append(image_placement)
+
         display_image(buffer, image_placement)
     return weechat.WEECHAT_RC_OK
 
