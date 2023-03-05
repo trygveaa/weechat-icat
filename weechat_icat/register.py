@@ -7,7 +7,7 @@ from weechat_icat.shared import shared
 
 SCRIPT_AUTHOR = "Trygve Aaberge <trygveaa@gmail.com>"
 SCRIPT_LICENSE = "MIT"
-SCRIPT_DESC = "Display an image in the chat"
+SCRIPT_DESC = "Display images in the chat"
 
 
 def register():
