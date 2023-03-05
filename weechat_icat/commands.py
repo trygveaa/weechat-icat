@@ -13,7 +13,7 @@ from weechat_icat.terminal_graphics import (
     ImagePlacement,
     create_and_send_image_to_terminal,
     display_image,
-    send_image_to_terminal,
+    send_images_to_terminal,
 )
 from weechat_icat.util import get_callback_name
 
@@ -41,15 +41,26 @@ def parse_options(args: str, supported_options: Dict[str, bool]):
     return "".join(pos_args).strip(), options
 
 
+def image_created_cb(buffer: str, image_placement: ImagePlacement):
+    display_image(buffer, image_placement)
+    image_placements[image_placement.path].append(image_placement)
+
+
+def images_restored_cb(buffer: str):
+    weechat.command(buffer, "/window refresh")
+
+
 def icat_cb(data: str, buffer: str, args: str) -> int:
     pos_args, options = parse_options(
         args, {"columns": True, "rows": True, "restore": False}
     )
     if "restore" in options:
-        for image_placement_list in image_placements.values():
-            for image_placement in image_placement_list:
-                send_image_to_terminal(image_placement)
-        weechat.command(buffer, "/window refresh")
+        image_placements_values = [
+            image_placement
+            for image_placement_list in image_placements.values()
+            for image_placement in image_placement_list
+        ]
+        send_images_to_terminal(image_placements_values, images_restored_cb, buffer)
     else:
         columns = options.get("columns")
         if columns is not None and not columns.isdecimal():
@@ -73,14 +84,13 @@ def icat_cb(data: str, buffer: str, args: str) -> int:
                 rows_int is None or rows_int == ip.rows
             ):
                 image_placement = ip
+                display_image(buffer, image_placement)
                 break
         else:
-            image_placement = create_and_send_image_to_terminal(
-                path, columns_int, rows_int
+            create_and_send_image_to_terminal(
+                path, columns_int, rows_int, image_created_cb, buffer
             )
-            image_placements[path].append(image_placement)
 
-        display_image(buffer, image_placement)
     return weechat.WEECHAT_RC_OK
 
 
