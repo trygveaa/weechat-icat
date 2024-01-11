@@ -109,17 +109,17 @@ def write_chunked(control_data: Dict[str, Union[str, int]], data: bytes):
 
 def get_cell_character(
     image_id: int,
-    x: int,
     y: int,
+    x: int,
     include_color: bool = False,
 ):
     image_id_upper = image_id >> 24
     image_id_lower = image_id & 0xFF
     color = weechat.color(str(image_id_lower)) if include_color else ""
-    x_char = rowcolumn_diacritics_chars[x]
     y_char = rowcolumn_diacritics_chars[y]
+    x_char = rowcolumn_diacritics_chars[x]
     id_char = rowcolumn_diacritics_chars[image_id_upper]
-    return f"{color}\U0010eeee{x_char}{y_char}{id_char}"
+    return f"{color}\U0010eeee{y_char}{x_char}{id_char}"
 
 
 def create_and_send_image_to_terminal_bg(data_serialized: str) -> str:
@@ -312,9 +312,9 @@ def send_images_to_terminal(
 
 
 def display_image(buffer: str, image_placement: ImagePlacement):
-    for x in range(image_placement.rows):
+    for y in range(image_placement.rows):
         chars = [
-            get_cell_character(image_placement.image_id, x, y, include_color=y == 0)
-            for y in range(image_placement.columns)
+            get_cell_character(image_placement.image_id, y, x, include_color=x == 0)
+            for x in range(image_placement.columns)
         ]
         weechat.prnt(buffer, "".join(chars))
