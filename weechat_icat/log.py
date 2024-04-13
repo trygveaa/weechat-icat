@@ -15,4 +15,5 @@ def print_info(message: str):
 
 
 def print_error(message: str):
-    print_log(weechat.prefix("error"), message)
+    if shared.print_errors:
+        print_log(weechat.prefix("error"), message)

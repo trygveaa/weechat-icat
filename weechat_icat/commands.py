@@ -173,8 +173,15 @@ def create_image(
 def icat_cb(data: str, buffer: str, args: str) -> int:
     pos_args, options = parse_options(
         args,
-        {"columns": True, "rows": True, "print_immediately": False, "restore": False},
+        {
+            "columns": True,
+            "rows": True,
+            "print_immediately": False,
+            "restore": False,
+            "quiet": False,
+        },
     )
+    shared.print_errors = not options.get("quiet")
     if "restore" in options:
         image_placements_values = [
             image_placement
@@ -225,6 +232,7 @@ def register_commands():
         "-print_immediately: print the image lines immediately (the lines will "
         "be blank until the image is created); requires both -columns and -rows\n"
         "          filename: image to display\n"
+        "            -quiet: don't print any error messages\n"
         "          -restore: instead of displaying a new image, restore the existing "
         "images to a new terminal instance\n"
         "\n"
@@ -234,9 +242,9 @@ def register_commands():
     weechat.hook_command(
         "icat",
         "display an image in the chat",
-        "[-columns <columns>] [-rows <rows>] [-print_immediately] <filename> || -restore",
+        "[-columns <columns>] [-rows <rows>] [-print_immediately] [-quiet] <filename> || -restore [-quiet]",
         command_icat_description,
-        "-columns|-rows|-print_immediately|%* || -restore",
+        "-columns|-rows|-print_immediately|-quiet|%* || -restore|-quiet|%*",
         get_callback_name(icat_cb),
         "",
     )
